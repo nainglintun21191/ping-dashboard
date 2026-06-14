@@ -1,0 +1,17 @@
+{
+  "name": "ping-dashboard",
+  "version": "2.0.0",
+  "description": "ICMP Ping Dashboard with Guest/Admin Mode",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.22.2",
+    "ping": "^0.4.4",
+    "socket.io": "^4.8.3"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

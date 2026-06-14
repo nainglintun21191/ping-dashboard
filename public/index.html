@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICMP Ping Dashboard V2.0</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 20px; padding-bottom: 50px; }
+        .header-container { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        h1 { color: #333; margin: 0; font-size: 24px; }
+        
+        .nav-controls { display: flex; gap: 10px; align-items: center; }
+        .mute-btn { padding: 10px 15px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; }
+        .muted { background-color: #dc3545; color: white; }
+        .unmuted { background-color: #ffc107; color: #212529; }
+        
+        .role-badge { padding: 8px 12px; border-radius: 4px; font-weight: bold; font-size: 14px; background-color: #e9ecef; color: #495057; }
+        .admin-badge { background-color: #0284c7; color: white; }
+        .btn-action { padding: 8px 15px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
+        .btn-admin-toggle { background-color: #4f46e5; }
+        .btn-add { background-color: #059669; display: none; } 
+
+        .form-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; border-top: 4px solid #059669; }
+        .form-group { display: flex; gap: 15px; align-items: center; margin-top: 10px; }
+        .form-group label { font-weight: bold; display: flex; flex-direction: column; gap: 5px; }
+        .form-group input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 200px; }
+        .btn-save { background-color: #059669; }
+        .btn-cancel { background-color: #6b7280; }
+
+        .dashboard-table, .preview-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+        .dashboard-table th, .dashboard-table td, .preview-table th, .preview-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        .dashboard-table th { background-color: #007bff; color: white; }
+        .preview-table th { background-color: #6c757d; color: white; }
+        
+        .status-online { background-color: #d4edda !important; color: #155724; font-weight: bold; }
+        .status-offline { background-color: #f8d7da !important; color: #721c24; font-weight: bold; animation: blink 1s infinite; }
+        @keyframes blink { 50% { background-color: #f5c6cb; } }
+
+        .action-col { display: none; text-align: center; width: 100px; }
+        .btn-delete { background-color: #ef4444; padding: 4px 8px; font-size: 12px; }
+
+        .export-section { margin-top: 30px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .export-group { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; margin-top: 15px; }
+        .export-group label { font-weight: bold; display: flex; flex-direction: column; gap: 5px; }
+        .export-section input, .export-section select, .export-section button { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        
+        .btn-generate { background-color: #17a2b8; color: white; cursor: pointer; border: none; font-weight: bold; }
+        .btn-export { background-color: #28a745; color: white; cursor: pointer; border: none; font-weight: bold; }
+
+        .result-preview-box { margin-top: 30px; background: #ffffff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: none; border-left: 5px solid #17a2b8; }
+        .summary-grid { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 15px; margin-bottom: 25px; }
+        .summary-card { background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e3e6f0; min-width: 150px; text-align: center; }
+        .summary-card h4 { margin: 0; color: #4e73df; font-size: 14px; }
+        .summary-card p { margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #5a5c69; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <div class="header-container">
+        <h1>🖥️ Network Monitor <span id="viewModeBadge" class="role-badge">Guest Mode</span></h1>
+        <div class="nav-controls">
+            <button id="muteBtn" class="mute-btn unmuted" onclick="toggleMute()">🔊 Sound ON</button>
+            <button id="btnToggleAdmin" class="btn-action btn-admin-toggle" onclick="switchRole()">🔐 Switch to Admin</button>
+            <button id="btnAddNewHost" class="btn-action btn-add" onclick="showAddForm()">➕ Add New Host</button>
+        </div>
+    </div>
+
+    <div id="addHostForm" class="form-container">
+        <h3 style="margin:0; color:#059669;">➕ Add New Device Node</h3>
+        <div class="form-group">
+            <label>Hostname: <input type="text" id="newHostName" placeholder="e.g. Core Switch"></label>
+            <label>IP Address: <input type="text" id="newHostIp" placeholder="e.g. 192.168.10.5"></label>
+            <button class="btn-action btn-save" onclick="saveNewHost()">Save Device</button>
+            <button class="btn-action btn-cancel" onclick="hideAddForm()">Cancel</button>
+        </div>
+    </div>
+    
+    <table class="dashboard-table">
+        <thead>
+            <tr>
+                <th>Hostname</th>
+                <th>IP Address</th>
+                <th>Status</th>
+                <th>Latency (ms)</th>
+                <th class="action-col admin-ui">Action</th>
+            </tr>
+        </thead>
+        <tbody id="device-rows"></tbody>
+    </table>
+
+    <div class="export-section">
+        <h3>📊 Host Performance Report</h3>
+        <div class="export-group">
+            <label>Select Host: <select id="exportHost"></select></label>
+            <label>Start Time: <input type="datetime-local" id="startTime"></label>
+            <label>End Time: <input type="datetime-local" id="endTime"></label>
+            <button class="btn-generate" onclick="generateReportPreview()">📊 Generate Report</button>
+            <button class="btn-export" onclick="exportCSV()">📥 Download CSV Report</button>
+        </div>
+    </div>
+
+    <div id="previewSection" class="result-preview-box">
+        <h2 style="margin-top:0; color:#17a2b8;">📋 Report Preview Result</h2>
+        <h4 id="previewHostDetails" style="color: #6c757d;"></h4>
+        <div class="summary-grid">
+            <div class="summary-card"><h4>Total Duration</h4><p id="sumTotalHours">0 Hours</p></div>
+            <div class="summary-card"><h4>Total Downtime</h4><p id="sumDownHours" style="color:#dc3545;">0 Hours</p></div>
+            <div class="summary-card"><h4>Downtime Rate</h4><p id="sumDownPercent" style="color:#dc3545;">0 %</p></div>
+        </div>
+        <h3>📝 Detailed Logs Preview</h3>
+        <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px;">
+            <table class="preview-table" style="margin-top:0;">
+                <thead><tr><th>Timestamp</th><th>Hostname</th><th>IP Address</th><th>Status</th></tr></thead>
+                <tbody id="preview-log-rows"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let devices = {}, currentRole = "Guest";
+        let audioCtx = null, oscillator = null, gainNode = null;
+        let isMuted = false, isBeeping = false;     
+
+        function switchRole() {
+            if (currentRole === "Guest") {
+                const password = prompt("Enter Admin Password to continue:");
+                if (password === "admin123") { 
+                    currentRole = "Admin";
+                    document.getElementById('viewModeBadge').innerText = "Admin Mode";
+                    document.getElementById('viewModeBadge').className = "role-badge admin-badge";
+                    document.getElementById('btnToggleAdmin').innerText = "🔓 Logout Admin";
+                    document.getElementById('btnAddNewHost').style.display = "inline-block";
+                    showAdminUI(true);
+                } else {
+                    alert("မှားယွင်းသော Password ဖြစ်ပါသည်။");
+                }
+            } else {
+                currentRole = "Guest";
+                document.getElementById('viewModeBadge').innerText = "Guest Mode";
+                document.getElementById('viewModeBadge').className = "role-badge";
+                document.getElementById('btnToggleAdmin').innerText = "🔐 Switch to Admin";
+                document.getElementById('btnAddNewHost').style.display = "none";
+                hideAddForm();
+                showAdminUI(false);
+            }
+        }
+
+        function showAdminUI(show) {
+            const adminElements = document.querySelectorAll('.admin-ui');
+            adminElements.forEach(el => {
+                el.style.display = show ? 'table-cell' : 'none';
+            });
+        }
+
+        function showAddForm() { document.getElementById('addHostForm').style.display = 'block'; }
+        function hideAddForm() {
+            document.getElementById('addHostForm').style.display = 'none';
+            document.getElementById('newHostName').value = '';
+            document.getElementById('newHostIp').value = '';
+        }
+
+        async function saveNewHost() {
+            const name = document.getElementById('newHostName').value.trim();
+            const ip = document.getElementById('newHostIp').value.trim();
+            if (!name || !ip) { alert("အချက်အလက်အားလုံး ပြည့်စုံစွာ ဖြည့်စွက်ပေးပါ။"); return; }
+
+            const res = await fetch('/api/hosts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, ip })
+            });
+
+            if (res.ok) {
+                alert("Device အသစ်ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။");
+                hideAddForm();
+            } else {
+                const data = await res.json();
+                alert("Error: " + data.error);
+            }
+        }
+
+        async function deleteHost(ip) {
+            if (!confirm("IP: " + ip + " အား Dashboard မှ လုံးဝ ဖျက်ထုတ်ရန် သေချာပါသလား?")) return;
+            const res = await fetch('/api/hosts/' + ip, { method: 'DELETE' });
+            if (res.ok) alert("ဖျက်သိမ်းပြီးပါပြီ။");
+        }
+
+        function renderDropdown(hosts) {
+            const select = document.getElementById('exportHost');
+            select.innerHTML = '';
+            hosts.forEach(host => {
+                const opt = document.createElement('option');
+                opt.value = host.ip; 
+                opt.innerText = host.name + " (" + host.ip + ")";
+                select.appendChild(opt);
+            });
+        }
+
+        socket.on('status-update', (data) => {
+            const tableBody = document.getElementById('device-rows');
+            const rowId = 'row-' + data.ip.replace(/\./g, '-');
+            let row = document.getElementById(rowId);
+
+            if (!row) {
+                row = document.createElement('tr'); 
+                row.id = rowId;
+                tableBody.appendChild(row);
+            }
+
+            const statusClass = data.status === 'Online' ? 'status-online' : 'status-offline';
+            devices[data.ip] = data;
+
+            const latencyStr = data.latency ? data.latency + ' ms' : 'N/A';
+            const actionStyle = currentRole === 'Admin' ? 'table-cell' : 'none';
+
+            row.className = statusClass;
+            row.innerHTML = '<td>' + data.name + '</td>' +
+                            '<td>' + data.ip + '</td>' +
+                            '<td>' + data.status + '</td>' +
+                            '<td>' + latencyStr + '</td>' +
+                            '<td class="action-col admin-ui" style="display: ' + actionStyle + ';">' +
+                            '<button class="btn-action btn-delete" onclick="deleteHost(\'' + data.ip + '\')">Delete</button>' +
+                            '</td>';
+            checkAnyOffline();
+        });
+
+        socket.on('hosts-updated', (updatedHosts) => {
+            renderDropdown(updatedHosts);
+            document.getElementById('device-rows').innerHTML = '';
+            devices = {};
+            hideAddForm();
+        });
+
+        fetch('/api/hosts').then(res => res.json()).then(hosts => renderDropdown(hosts));
+
+        function startAlertBeep() {
+            if (isBeeping || isMuted) return;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            oscillator = audioCtx.createOscillator(); gainNode = audioCtx.createGain();
+            oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); 
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
+            oscillator.start(); isBeeping = true; pulseAudio();
+        }
+        function pulseAudio() {
+            if (!isBeeping || isMuted) return;
+            gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 0.3);
+            setTimeout(pulseAudio, 600);
+        }
+        function stopAlertBeep() {
+            if (!isBeeping) return; isBeeping = false;
+            if (oscillator) { try { oscillator.stop(); oscillator.disconnect(); } catch (e) {} }
+        }
+        function toggleMute() {
+            isMuted = !isMuted; const btn = document.getElementById('muteBtn');
+            if (isMuted) { btn.className = "mute-btn muted"; btn.innerText = "🔇 Muted"; stopAlertBeep(); } 
+            else { btn.className = "mute-btn unmuted"; btn.innerText = "🔊 Sound ON"; checkAnyOffline(); }
+        }
+        function checkAnyOffline() {
+            let offlineFound = false;
+            for (let key in devices) {
+                if (devices[key].status === 'Offline') { offlineFound = true; break; }
+            }
+            if (offlineFound) startAlertBeep(); else stopAlertBeep();
+        }
+
+        async function generateReportPreview() {
+            const targetIp = document.getElementById('exportHost').value;
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            if (!startTime || !endTime) { alert("Time ရွေးချယ်ပေးပါ။"); return; }
+            
+            const res = await fetch('/api/generate-report', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetIp, startTime, endTime })
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('previewSection').style.display = 'block';
+                document.getElementById('previewHostDetails').innerText = "Device: " + data.hostName + " | " + data.startTime + " to " + data.endTime;
+                document.getElementById('sumTotalHours').innerText = data.totalHours + " Hours";
+                document.getElementById('sumDownHours').innerText = data.totalDowntimeHours + " Hours";
+                document.getElementById('sumDownPercent').innerText = data.downtimePercentage + " %";
+                
+                const rows = document.getElementById('preview-log-rows'); 
+                rows.innerHTML = '';
+                
+                if(data.logs.length === 0) {
+                    rows.innerHTML = '<tr><td colspan="4" style="text-align:center;">No Data</td></tr>';
+                } else {
+                    data.logs.forEach(log => {
+                        const trClass = log.status === 'Online' ? 'status-online' : 'status-offline';
+                        const dateStr = new Date(log.timestamp).toLocaleString();
+                        rows.innerHTML += '<tr class="' + trClass + '"><td>' + dateStr + '</td><td>' + log.hostname + '</td><td>' + log.ip + '</td><td>' + log.status + '</td></tr>';
+                    });
+                }
+                document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        async function exportCSV() {
+            const targetIp = document.getElementById('exportHost').value;
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            if (!startTime || !endTime) { alert("Time ရွေးချယ်ပေးပါ။"); return; }
+            const res = await fetch('/api/export-csv', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetIp, startTime, endTime })
+            });
+            if (res.ok) {
+                const blob = await res.blob(); const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = "Report_" + targetIp + ".csv";
+                document.body.appendChild(a); a.click(); a.remove();
+            }
+        }
+    </script>
+</body>
+</html>
