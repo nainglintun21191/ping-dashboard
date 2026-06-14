@@ -1,3 +1,5 @@
 node_modules/
 ping-data/
 *.csv
+hosts.json
+.DS_Store

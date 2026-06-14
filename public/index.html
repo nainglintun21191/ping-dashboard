@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ICMP Ping Dashboard V2.0</title>
+    <title>ICMP Ping Dashboard V2.5</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 20px; padding-bottom: 50px; }
         .header-container { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
@@ -19,6 +19,7 @@
         .btn-action { padding: 8px 15px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
         .btn-admin-toggle { background-color: #4f46e5; }
         .btn-add { background-color: #059669; display: none; } 
+        .btn-pwd { background-color: #4b5563; display: none; }
 
         .form-container { background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; border-top: 4px solid #059669; }
         .form-group { display: flex; gap: 15px; align-items: center; margin-top: 10px; }
@@ -36,8 +37,14 @@
         .status-offline { background-color: #f8d7da !important; color: #721c24; font-weight: bold; animation: blink 1s infinite; }
         @keyframes blink { 50% { background-color: #f5c6cb; } }
 
-        .action-col { display: none; text-align: center; width: 100px; }
-        .btn-delete { background-color: #ef4444; padding: 4px 8px; font-size: 12px; }
+        .action-col { display: none; text-align: center; width: 160px; }
+        .btn-row-action { padding: 4px 10px; font-size: 12px; margin-right: 5px; font-weight: bold; border: none; border-radius: 3px; cursor: pointer; color: white; }
+        .btn-edit { background-color: #f59e0b; }
+        .btn-delete { background-color: #ef4444; }
+        .btn-inline-save { background-color: #10b981; }
+        .btn-inline-cancel { background-color: #6b7280; }
+
+        .inline-edit-input { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 85%; }
 
         .export-section { margin-top: 30px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .export-group { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; margin-top: 15px; }
@@ -62,7 +69,18 @@
         <div class="nav-controls">
             <button id="muteBtn" class="mute-btn unmuted" onclick="toggleMute()">🔊 Sound ON</button>
             <button id="btnToggleAdmin" class="btn-action btn-admin-toggle" onclick="switchRole()">🔐 Switch to Admin</button>
+            <button id="btnChangePwd" class="btn-action btn-pwd" onclick="changeAdminPassword()">🔑 Change Password</button>
             <button id="btnAddNewHost" class="btn-action btn-add" onclick="showAddForm()">➕ Add New Host</button>
+        </div>
+    </div>
+
+    <div id="changePwdForm" class="form-container" style="border-top: 4px solid #4b5563;">
+        <h3 style="margin:0; color:#4b5563;">🔑 Update Admin Password</h3>
+        <div class="form-group">
+            <label>Current Password: <input type="password" id="oldPwd"></label>
+            <label>New Password: <input type="password" id="newPwd"></label>
+            <button class="btn-action" style="background-color:#4b5563;" onclick="saveNewPassword()">Update Password</button>
+            <button class="btn-action btn-cancel" onclick="hidePwdForm()">Cancel</button>
         </div>
     </div>
 
@@ -119,19 +137,28 @@
 
     <script>
         const socket = io();
-        let devices = {}, currentRole = "Guest";
+        let devices = {}, currentRole = "Guest", editingIp = null;
         let audioCtx = null, oscillator = null, gainNode = null;
         let isMuted = false, isBeeping = false;     
 
-        function switchRole() {
+        async function switchRole() {
             if (currentRole === "Guest") {
                 const password = prompt("Enter Admin Password to continue:");
-                if (password === "admin123") { 
+                if (!password) return;
+
+                const res = await fetch('/api/verify-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) { 
                     currentRole = "Admin";
                     document.getElementById('viewModeBadge').innerText = "Admin Mode";
                     document.getElementById('viewModeBadge').className = "role-badge admin-badge";
                     document.getElementById('btnToggleAdmin').innerText = "🔓 Logout Admin";
                     document.getElementById('btnAddNewHost').style.display = "inline-block";
+                    document.getElementById('btnChangePwd').style.display = "inline-block";
                     showAdminUI(true);
                 } else {
                     alert("မှားယွင်းသော Password ဖြစ်ပါသည်။");
@@ -142,7 +169,9 @@
                 document.getElementById('viewModeBadge').className = "role-badge";
                 document.getElementById('btnToggleAdmin').innerText = "🔐 Switch to Admin";
                 document.getElementById('btnAddNewHost').style.display = "none";
-                hideAddForm();
+                document.getElementById('btnChangePwd').style.display = "none";
+                hideAddForm(); hidePwdForm();
+                editingIp = null;
                 showAdminUI(false);
             }
         }
@@ -161,6 +190,35 @@
             document.getElementById('newHostIp').value = '';
         }
 
+        function changeAdminPassword() { document.getElementById('changePwdForm').style.display = 'block'; }
+        function hidePwdForm() {
+            document.getElementById('changePwdForm').style.display = 'none';
+            document.getElementById('oldPwd').value = '';
+            document.getElementById('newPwd').value = '';
+        }
+
+        // Action: Change Admin Password
+        async function saveNewPassword() {
+            const oldPassword = document.getElementById('oldPwd').value;
+            const newPassword = document.getElementById('newPwd').value;
+            if(!oldPassword || !newPassword) { alert("အချက်အလက်များကို ဖြည့်စွက်ပါ"); return; }
+
+            const res = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ oldPassword, newPassword })
+            });
+
+            if(res.ok) {
+                alert("Password ပြောင်းလဲခြင်း အောင်မြင်ပါသည်။ နောက်တစ်ကြိမ်တွင် Password အသစ်ဖြင့် ဝင်ရောက်ပါ။");
+                hidePwdForm();
+            } else {
+                const data = await res.json();
+                alert("Error: " + data.error);
+            }
+        }
+
+        // Action: Save Host
         async function saveNewHost() {
             const name = document.getElementById('newHostName').value.trim();
             const ip = document.getElementById('newHostIp').value.trim();
@@ -172,15 +230,56 @@
                 body: JSON.stringify({ name, ip })
             });
 
+            if (res.ok) { alert("Device အသစ်ကို ထည့်သွင်းပြီးပါပြီ။"); hideAddForm(); } 
+            else { const data = await res.json(); alert("Error: " + data.error); }
+        }
+
+        // Action: Inline Edit Toggle
+        function startInlineEdit(ip) {
+            editingIp = ip;
+            const dev = devices[ip];
+            const rowId = 'row-' + ip.replace(/\./g, '-');
+            const row = document.getElementById(rowId);
+            if(!row) return;
+
+            row.innerHTML = `
+                <td><input type="text" id="edit-name-${rowId}" class="inline-edit-input" value="${dev.name}"></td>
+                <td><input type="text" id="edit-ip-${rowId}" class="inline-edit-input" value="${dev.ip}"></td>
+                <td>${dev.status} (Editing)</td>
+                <td>${dev.latency ? dev.latency + ' ms' : 'N/A'}</td>
+                <td class="action-col admin-ui" style="display: table-cell;">
+                    <button class="btn-row-action btn-inline-save" onclick="saveInlineEdit('${ip}')">Save</button>
+                    <button class="btn-row-action btn-inline-cancel" onclick="cancelInlineEdit()">Cancel</button>
+                </td>
+            `;
+        }
+
+        function cancelInlineEdit() { editingIp = null; fetch('/api/hosts').then(res => res.json()); }
+
+        // Action: Save Inline Edit (PUT)
+        async function saveInlineEdit(oldIp) {
+            const rowId = 'row-' + oldIp.replace(/\./g, '-');
+            const newName = document.getElementById(`edit-name-${rowId}`).value.trim();
+            const newIp = document.getElementById(`edit-ip-${rowId}`).value.trim();
+
+            if(!newName || !newIp) { alert("အချက်အလက်အပြည့်အစုံ ဖြည့်ပါ။"); return; }
+
+            const res = await fetch('/api/hosts/' + oldIp, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName, ip: newIp })
+            });
+
             if (res.ok) {
-                alert("Device အသစ်ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ။");
-                hideAddForm();
+                editingIp = null;
+                alert("ပြင်ဆင်ပြီးပါပြီ။");
             } else {
                 const data = await res.json();
                 alert("Error: " + data.error);
             }
         }
 
+        // Action: Delete Host
         async function deleteHost(ip) {
             if (!confirm("IP: " + ip + " အား Dashboard မှ လုံးဝ ဖျက်ထုတ်ရန် သေချာပါသလား?")) return;
             const res = await fetch('/api/hosts/' + ip, { method: 'DELETE' });
@@ -192,26 +291,28 @@
             select.innerHTML = '';
             hosts.forEach(host => {
                 const opt = document.createElement('option');
-                opt.value = host.ip; 
-                opt.innerText = host.name + " (" + host.ip + ")";
+                opt.value = host.ip; opt.innerText = host.name + " (" + host.ip + ")";
                 select.appendChild(opt);
             });
         }
 
+        // Live WS Rendering Logic
         socket.on('status-update', (data) => {
+            devices[data.ip] = data;
+            
+            // လက်ရှိ Edit လုပ်နေဆဲ Row ဖြစ်ပါက Live Status စာသားကို overwrite မလုပ်ပါ
+            if (editingIp === data.ip) return; 
+
             const tableBody = document.getElementById('device-rows');
             const rowId = 'row-' + data.ip.replace(/\./g, '-');
             let row = document.getElementById(rowId);
 
             if (!row) {
-                row = document.createElement('tr'); 
-                row.id = rowId;
+                row = document.createElement('tr'); row.id = rowId;
                 tableBody.appendChild(row);
             }
 
             const statusClass = data.status === 'Online' ? 'status-online' : 'status-offline';
-            devices[data.ip] = data;
-
             const latencyStr = data.latency ? data.latency + ' ms' : 'N/A';
             const actionStyle = currentRole === 'Admin' ? 'table-cell' : 'none';
 
@@ -221,7 +322,8 @@
                             '<td>' + data.status + '</td>' +
                             '<td>' + latencyStr + '</td>' +
                             '<td class="action-col admin-ui" style="display: ' + actionStyle + ';">' +
-                            '<button class="btn-action btn-delete" onclick="deleteHost(\'' + data.ip + '\')">Delete</button>' +
+                            '<button class="btn-row-action btn-edit" onclick="startInlineEdit(\'' + data.ip + '\')">Edit</button>' +
+                            '<button class="btn-row-action btn-delete" onclick="deleteHost(\'' + data.ip + '\')">Delete</button>' +
                             '</td>';
             checkAnyOffline();
         });
@@ -235,6 +337,7 @@
 
         fetch('/api/hosts').then(res => res.json()).then(hosts => renderDropdown(hosts));
 
+        // Audio Alert System
         function startAlertBeep() {
             if (isBeeping || isMuted) return;
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -267,6 +370,7 @@
             if (offlineFound) startAlertBeep(); else stopAlertBeep();
         }
 
+        // Preview System
         async function generateReportPreview() {
             const targetIp = document.getElementById('exportHost').value;
             const startTime = document.getElementById('startTime').value;
@@ -287,9 +391,7 @@
                 document.getElementById('sumDownHours').innerText = data.totalDowntimeHours + " Hours";
                 document.getElementById('sumDownPercent').innerText = data.downtimePercentage + " %";
                 
-                const rows = document.getElementById('preview-log-rows'); 
-                rows.innerHTML = '';
-                
+                const rows = document.getElementById('preview-log-rows'); rows.innerHTML = '';
                 if(data.logs.length === 0) {
                     rows.innerHTML = '<tr><td colspan="4" style="text-align:center;">No Data</td></tr>';
                 } else {

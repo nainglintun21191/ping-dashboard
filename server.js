@@ -14,13 +14,20 @@ app.use(express.static('public'));
 app.use(express.json());
 
 const HOSTS_FILE = path.join(__dirname, 'hosts.json');
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
-// hosts.json မရှိရင် Auto ဆောက်ပေးမည့် Safety Logic
+// Safety: hosts.json မရှိရင် Auto ဆောက်ပေးခြင်း
 if (!fs.existsSync(HOSTS_FILE)) {
     fs.writeFileSync(HOSTS_FILE, JSON.stringify([], null, 2), 'utf8');
 }
 
+// Safety: config.json (Password သိမ်းမည့်ဖိုင်) မရှိရင် Default 'admin123' ဖြင့် ဆောက်ပေးခြင်း
+if (!fs.existsSync(CONFIG_FILE)) {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ password: "admin123" }, null, 2), 'utf8');
+}
+
 let hosts = JSON.parse(fs.readFileSync(HOSTS_FILE, 'utf8'));
+let config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
 let pingHistory = [];
 const MAX_HISTORY_LOGS = 50000; 
 
@@ -54,27 +61,66 @@ async function monitorHosts() {
     }
 }
 
-// ၅ စက္ကန့်လျှင် တစ်ကြိမ် Ping စစ်မည်
 setInterval(monitorHosts, 5000);
 
 // API: Get Host List
-app.get('/api/hosts', (req, res) => {
-    res.json(hosts);
+app.get('/api/hosts', (req, res) => { res.json(hosts); });
+
+// API: Get Admin Password (For validation)
+app.post('/api/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === config.password) {
+        return res.json({ success: true });
+    }
+    res.status(401).json({ success: false, error: "Password မှားယွင်းနေပါသည်။" });
+});
+
+// API: Change Password
+app.post('/api/change-password', (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (oldPassword !== config.password) {
+        return res.status(400).json({ error: "ယခင် Password အဟောင်း မှားယွင်းနေပါသည်။" });
+    }
+    if (!newPassword || newPassword.trim().length < 4) {
+        return res.status(400).json({ error: "Password အသစ်သည် အနည်းဆုံး စာလုံး ၄ လုံး ရှိရပါမည်။" });
+    }
+    config.password = newPassword.trim();
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+    res.json({ message: "Password ပြောင်းလဲခြင်း အောင်မြင်ပါသည်။" });
 });
 
 // API: Add New Host
 app.post('/api/hosts', (req, res) => {
     const { name, ip } = req.body;
-    if (!name || !ip) {
-        return res.status(400).json({ error: "Hostname and IP are required." });
-    }
-    if (hosts.some(h => h.ip === ip)) {
-        return res.status(400).json({ error: "IP Address already exists." });
-    }
+    if (!name || !ip) return res.status(400).json({ error: "Hostname and IP are required." });
+    if (hosts.some(h => h.ip === ip)) return res.status(400).json({ error: "IP Address configuration already exists." });
+    
     hosts.push({ name, ip });
     fs.writeFileSync(HOSTS_FILE, JSON.stringify(hosts, null, 2), 'utf8');
     io.emit('hosts-updated', hosts);
     res.status(201).json({ message: "Host added successfully" });
+});
+
+// API: Edit Host (PUT)
+app.put('/api/hosts/:oldIp', (req, res) => {
+    const oldIp = req.params.oldIp;
+    const { name, ip } = req.body;
+
+    if (!name || !ip) return res.status(400).json({ error: "Hostname and IP are required." });
+    
+    // မိမိ IP မဟုတ်ဘဲ တခြား host က IP နဲ့ သွားတူနေမလား စစ်ဆေးခြင်း
+    if (oldIp !== ip && hosts.some(h => h.ip === ip)) {
+        return res.status(400).json({ error: "ပြင်ဆင်လိုက်သော IP Address သည် ရှိပြီးသား ဖြစ်နေပါသည်။" });
+    }
+
+    const index = hosts.findIndex(h => h.ip === oldIp);
+    if (index !== -1) {
+        hosts[index] = { name, ip };
+        fs.writeFileSync(HOSTS_FILE, JSON.stringify(hosts, null, 2), 'utf8');
+        io.emit('hosts-updated', hosts);
+        return res.json({ message: "Host updated successfully" });
+    }
+    res.status(404).json({ error: "Host not found" });
 });
 
 // API: Delete Host
@@ -123,6 +169,4 @@ app.post('/api/export-csv', (req, res) => {
     return res.status(200).send(csvContent);
 });
 
-server.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+server.listen(PORT, () => { console.log(`Server is running on http://localhost:${PORT}`); });
