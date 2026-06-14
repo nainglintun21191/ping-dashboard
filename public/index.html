@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ICMP Ping Dashboard V2.5</title>
+    <title>ICMP Ping Dashboard V3.0</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 20px; padding-bottom: 50px; }
         .header-container { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
@@ -27,6 +27,10 @@
         .form-group input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 200px; }
         .btn-save { background-color: #059669; }
         .btn-cancel { background-color: #6b7280; }
+
+        /* Batch Tool Admin Section */
+        .batch-admin-section { display: none; background: #fff; padding: 15px 20px; border-radius: 8px; margin-top: 20px; border-top: 4px solid #0284c7; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .batch-group { display: flex; gap: 20px; align-items: center; margin-top: 10px; }
 
         .dashboard-table, .preview-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
         .dashboard-table th, .dashboard-table td, .preview-table th, .preview-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
@@ -71,6 +75,20 @@
             <button id="btnToggleAdmin" class="btn-action btn-admin-toggle" onclick="switchRole()">🔐 Switch to Admin</button>
             <button id="btnChangePwd" class="btn-action btn-pwd" onclick="changeAdminPassword()">🔑 Change Password</button>
             <button id="btnAddNewHost" class="btn-action btn-add" onclick="showAddForm()">➕ Add New Host</button>
+        </div>
+    </div>
+
+    <div id="batchAdminPanel" class="batch-admin-section">
+        <h3 style="margin:0; color:#0284c7;">📊 Batch CSV Configuration Tools</h3>
+        <div class="batch-group">
+            <div>
+                <button class="btn-action" style="background-color:#0284c7;" onclick="exportHostsConfigCSV()">📥 Backup Current Hosts (CSV Export)</button>
+            </div>
+            <div style="border-left: 2px solid #ddd; padding-left: 20px;">
+                <label style="font-weight:bold;">📤 Import Hosts via CSV File: </label>
+                <input type="file" id="csvFileInput" accept=".csv" style="padding:5px;">
+                <button class="btn-action" style="background-color:#10b981;" onclick="importHostsConfigCSV()">Upload & Import</button>
+            </div>
         </div>
     </div>
 
@@ -159,6 +177,7 @@
                     document.getElementById('btnToggleAdmin').innerText = "🔓 Logout Admin";
                     document.getElementById('btnAddNewHost').style.display = "inline-block";
                     document.getElementById('btnChangePwd').style.display = "inline-block";
+                    document.getElementById('batchAdminPanel').style.display = "block";
                     showAdminUI(true);
                 } else {
                     alert("မှားယွင်းသော Password ဖြစ်ပါသည်။");
@@ -170,6 +189,7 @@
                 document.getElementById('btnToggleAdmin').innerText = "🔐 Switch to Admin";
                 document.getElementById('btnAddNewHost').style.display = "none";
                 document.getElementById('btnChangePwd').style.display = "none";
+                document.getElementById('batchAdminPanel').style.display = "none";
                 hideAddForm(); hidePwdForm();
                 editingIp = null;
                 showAdminUI(false);
@@ -178,70 +198,48 @@
 
         function showAdminUI(show) {
             const adminElements = document.querySelectorAll('.admin-ui');
-            adminElements.forEach(el => {
-                el.style.display = show ? 'table-cell' : 'none';
-            });
+            adminElements.forEach(el => { el.style.display = show ? 'table-cell' : 'none'; });
         }
 
         function showAddForm() { document.getElementById('addHostForm').style.display = 'block'; }
         function hideAddForm() {
             document.getElementById('addHostForm').style.display = 'none';
-            document.getElementById('newHostName').value = '';
-            document.getElementById('newHostIp').value = '';
+            document.getElementById('newHostName').value = ''; document.getElementById('newHostIp').value = '';
         }
 
         function changeAdminPassword() { document.getElementById('changePwdForm').style.display = 'block'; }
         function hidePwdForm() {
             document.getElementById('changePwdForm').style.display = 'none';
-            document.getElementById('oldPwd').value = '';
-            document.getElementById('newPwd').value = '';
+            document.getElementById('oldPwd').value = ''; document.getElementById('newPwd').value = '';
         }
 
-        // Action: Change Admin Password
         async function saveNewPassword() {
             const oldPassword = document.getElementById('oldPwd').value;
             const newPassword = document.getElementById('newPwd').value;
             if(!oldPassword || !newPassword) { alert("အချက်အလက်များကို ဖြည့်စွက်ပါ"); return; }
-
             const res = await fetch('/api/change-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ oldPassword, newPassword })
             });
-
-            if(res.ok) {
-                alert("Password ပြောင်းလဲခြင်း အောင်မြင်ပါသည်။ နောက်တစ်ကြိမ်တွင် Password အသစ်ဖြင့် ဝင်ရောက်ပါ။");
-                hidePwdForm();
-            } else {
-                const data = await res.json();
-                alert("Error: " + data.error);
-            }
+            if(res.ok) { alert("Password ပြောင်းလဲခြင်း အောင်မြင်ပါသည်။"); hidePwdForm(); } 
+            else { const data = await res.json(); alert("Error: " + data.error); }
         }
 
-        // Action: Save Host
         async function saveNewHost() {
             const name = document.getElementById('newHostName').value.trim();
             const ip = document.getElementById('newHostIp').value.trim();
             if (!name || !ip) { alert("အချက်အလက်အားလုံး ပြည့်စုံစွာ ဖြည့်စွက်ပေးပါ။"); return; }
-
             const res = await fetch('/api/hosts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, ip })
             });
-
             if (res.ok) { alert("Device အသစ်ကို ထည့်သွင်းပြီးပါပြီ။"); hideAddForm(); } 
             else { const data = await res.json(); alert("Error: " + data.error); }
         }
 
-        // Action: Inline Edit Toggle
         function startInlineEdit(ip) {
-            editingIp = ip;
-            const dev = devices[ip];
-            const rowId = 'row-' + ip.replace(/\./g, '-');
-            const row = document.getElementById(rowId);
-            if(!row) return;
-
+            editingIp = ip; const dev = devices[ip];
+            const rowId = 'row-' + ip.replace(/\./g, '-'); const row = document.getElementById(rowId); if(!row) return;
             row.innerHTML = `
                 <td><input type="text" id="edit-name-${rowId}" class="inline-edit-input" value="${dev.name}"></td>
                 <td><input type="text" id="edit-ip-${rowId}" class="inline-edit-input" value="${dev.ip}"></td>
@@ -253,74 +251,78 @@
                 </td>
             `;
         }
-
         function cancelInlineEdit() { editingIp = null; fetch('/api/hosts').then(res => res.json()); }
 
-        // Action: Save Inline Edit (PUT)
         async function saveInlineEdit(oldIp) {
             const rowId = 'row-' + oldIp.replace(/\./g, '-');
             const newName = document.getElementById(`edit-name-${rowId}`).value.trim();
             const newIp = document.getElementById(`edit-ip-${rowId}`).value.trim();
-
             if(!newName || !newIp) { alert("အချက်အလက်အပြည့်အစုံ ဖြည့်ပါ။"); return; }
-
             const res = await fetch('/api/hosts/' + oldIp, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newName, ip: newIp })
             });
-
-            if (res.ok) {
-                editingIp = null;
-                alert("ပြင်ဆင်ပြီးပါပြီ။");
-            } else {
-                const data = await res.json();
-                alert("Error: " + data.error);
-            }
+            if (res.ok) { editingIp = null; alert("ပြင်ဆင်ပြီးပါပြီ။"); } 
+            else { const data = await res.json(); alert("Error: " + data.error); }
         }
 
-        // Action: Delete Host
         async function deleteHost(ip) {
             if (!confirm("IP: " + ip + " အား Dashboard မှ လုံးဝ ဖျက်ထုတ်ရန် သေချာပါသလား?")) return;
             const res = await fetch('/api/hosts/' + ip, { method: 'DELETE' });
             if (res.ok) alert("ဖျက်သိမ်းပြီးပါပြီ။");
         }
 
+        /* =======================================================
+           NEW FRONTEND JS: BATCH IMPORT / EXPORT OPERATIONS
+           ======================================================= */
+        function exportHostsConfigCSV() {
+            window.location.href = '/api/config/export-csv';
+        }
+
+        function importHostsConfigCSV() {
+            const fileInput = document.getElementById('csvFileInput');
+            if (fileInput.files.length === 0) { alert("ကျေးဇူးပြု၍ CSV ဖိုင်တစ်ခု ရွေးချယ်ပေးပါရန်။"); return; }
+            
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            
+            reader.onload = async function(e) {
+                const text = e.target.result;
+                const res = await fetch('/api/config/import-csv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/csv' },
+                    body: text
+                });
+                
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(`${result.message}\nထည့်သွင်းမှုအသစ်: ${result.added} ခု\nကျော်ခွခဲ့သည့်အဟောင်း (IP ထပ်နေခြင်း): ${result.skipped} ခု`);
+                    fileInput.value = ''; // Reset Input
+                } else {
+                    alert("Import လုပ်ရာတွင် အဆင်မပြေမှု ဖြစ်ပွားခဲ့ပါသည်။");
+                }
+            };
+            reader.readAsText(file);
+        }
+
         function renderDropdown(hosts) {
-            const select = document.getElementById('exportHost');
-            select.innerHTML = '';
+            const select = document.getElementById('exportHost'); select.innerHTML = '';
             hosts.forEach(host => {
-                const opt = document.createElement('option');
-                opt.value = host.ip; opt.innerText = host.name + " (" + host.ip + ")";
-                select.appendChild(opt);
+                const opt = document.createElement('option'); opt.value = host.ip; 
+                opt.innerText = host.name + " (" + host.ip + ")"; select.appendChild(opt);
             });
         }
 
-        // Live WS Rendering Logic
         socket.on('status-update', (data) => {
-            devices[data.ip] = data;
-            
-            // လက်ရှိ Edit လုပ်နေဆဲ Row ဖြစ်ပါက Live Status စာသားကို overwrite မလုပ်ပါ
-            if (editingIp === data.ip) return; 
-
+            devices[data.ip] = data; if (editingIp === data.ip) return; 
             const tableBody = document.getElementById('device-rows');
-            const rowId = 'row-' + data.ip.replace(/\./g, '-');
-            let row = document.getElementById(rowId);
-
-            if (!row) {
-                row = document.createElement('tr'); row.id = rowId;
-                tableBody.appendChild(row);
-            }
-
+            const rowId = 'row-' + data.ip.replace(/\./g, '-'); let row = document.getElementById(rowId);
+            if (!row) { row = document.createElement('tr'); row.id = rowId; tableBody.appendChild(row); }
             const statusClass = data.status === 'Online' ? 'status-online' : 'status-offline';
             const latencyStr = data.latency ? data.latency + ' ms' : 'N/A';
             const actionStyle = currentRole === 'Admin' ? 'table-cell' : 'none';
-
             row.className = statusClass;
-            row.innerHTML = '<td>' + data.name + '</td>' +
-                            '<td>' + data.ip + '</td>' +
-                            '<td>' + data.status + '</td>' +
-                            '<td>' + latencyStr + '</td>' +
+            row.innerHTML = '<td>' + data.name + '</td>' + '<td>' + data.ip + '</td>' + '<td>' + data.status + '</td>' + '<td>' + latencyStr + '</td>' +
                             '<td class="action-col admin-ui" style="display: ' + actionStyle + ';">' +
                             '<button class="btn-row-action btn-edit" onclick="startInlineEdit(\'' + data.ip + '\')">Edit</button>' +
                             '<button class="btn-row-action btn-delete" onclick="deleteHost(\'' + data.ip + '\')">Delete</button>' +
@@ -329,33 +331,24 @@
         });
 
         socket.on('hosts-updated', (updatedHosts) => {
-            renderDropdown(updatedHosts);
-            document.getElementById('device-rows').innerHTML = '';
-            devices = {};
-            hideAddForm();
+            renderDropdown(updatedHosts); document.getElementById('device-rows').innerHTML = '';
+            devices = {}; hideAddForm();
         });
 
         fetch('/api/hosts').then(res => res.json()).then(hosts => renderDropdown(hosts));
 
-        // Audio Alert System
         function startAlertBeep() {
             if (isBeeping || isMuted) return;
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             oscillator = audioCtx.createOscillator(); gainNode = audioCtx.createGain();
-            oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); 
-            gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-            oscillator.connect(gainNode); gainNode.connect(audioCtx.destination);
-            oscillator.start(); isBeeping = true; pulseAudio();
+            oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+            oscillator.connect(gainNode); gainNode.connect(audioCtx.destination); oscillator.start(); isBeeping = true; pulseAudio();
         }
         function pulseAudio() {
-            if (!isBeeping || isMuted) return;
-            gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 0.3);
-            setTimeout(pulseAudio, 600);
+            if (!isBeeping || isMuted) return; gainNode.gain.setValueAtTime(0.4, audioCtx.currentTime); gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 0.3); setTimeout(pulseAudio, 600);
         }
         function stopAlertBeep() {
-            if (!isBeeping) return; isBeeping = false;
-            if (oscillator) { try { oscillator.stop(); oscillator.disconnect(); } catch (e) {} }
+            if (!isBeeping) return; isBeeping = false; if (oscillator) { try { oscillator.stop(); oscillator.disconnect(); } catch (e) {} }
         }
         function toggleMute() {
             isMuted = !isMuted; const btn = document.getElementById('muteBtn');
@@ -363,41 +356,25 @@
             else { btn.className = "mute-btn unmuted"; btn.innerText = "🔊 Sound ON"; checkAnyOffline(); }
         }
         function checkAnyOffline() {
-            let offlineFound = false;
-            for (let key in devices) {
-                if (devices[key].status === 'Offline') { offlineFound = true; break; }
-            }
+            let offlineFound = false; for (let key in devices) { if (devices[key].status === 'Offline') { offlineFound = true; break; } }
             if (offlineFound) startAlertBeep(); else stopAlertBeep();
         }
 
-        // Preview System
         async function generateReportPreview() {
-            const targetIp = document.getElementById('exportHost').value;
-            const startTime = document.getElementById('startTime').value;
-            const endTime = document.getElementById('endTime').value;
+            const targetIp = document.getElementById('exportHost').value; const startTime = document.getElementById('startTime').value; const endTime = document.getElementById('endTime').value;
             if (!startTime || !endTime) { alert("Time ရွေးချယ်ပေးပါ။"); return; }
-            
             const res = await fetch('/api/generate-report', {
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetIp, startTime, endTime })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetIp, startTime, endTime })
             });
-            
             if (res.ok) {
-                const data = await res.json();
-                document.getElementById('previewSection').style.display = 'block';
+                const data = await res.json(); document.getElementById('previewSection').style.display = 'block';
                 document.getElementById('previewHostDetails').innerText = "Device: " + data.hostName + " | " + data.startTime + " to " + data.endTime;
-                document.getElementById('sumTotalHours').innerText = data.totalHours + " Hours";
-                document.getElementById('sumDownHours').innerText = data.totalDowntimeHours + " Hours";
-                document.getElementById('sumDownPercent').innerText = data.downtimePercentage + " %";
-                
+                document.getElementById('sumTotalHours').innerText = data.totalHours + " Hours"; document.getElementById('sumDownHours').innerText = data.totalDowntimeHours + " Hours"; document.getElementById('sumDownPercent').innerText = data.downtimePercentage + " %";
                 const rows = document.getElementById('preview-log-rows'); rows.innerHTML = '';
-                if(data.logs.length === 0) {
-                    rows.innerHTML = '<tr><td colspan="4" style="text-align:center;">No Data</td></tr>';
-                } else {
+                if(data.logs.length === 0) { rows.innerHTML = '<tr><td colspan="4" style="text-align:center;">No Data</td></tr>'; } 
+                else {
                     data.logs.forEach(log => {
-                        const trClass = log.status === 'Online' ? 'status-online' : 'status-offline';
-                        const dateStr = new Date(log.timestamp).toLocaleString();
+                        const trClass = log.status === 'Online' ? 'status-online' : 'status-offline'; const dateStr = new Date(log.timestamp).toLocaleString();
                         rows.innerHTML += '<tr class="' + trClass + '"><td>' + dateStr + '</td><td>' + log.hostname + '</td><td>' + log.ip + '</td><td>' + log.status + '</td></tr>';
                     });
                 }
@@ -406,18 +383,14 @@
         }
 
         async function exportCSV() {
-            const targetIp = document.getElementById('exportHost').value;
-            const startTime = document.getElementById('startTime').value;
-            const endTime = document.getElementById('endTime').value;
+            const targetIp = document.getElementById('exportHost').value; const startTime = document.getElementById('startTime').value; const endTime = document.getElementById('endTime').value;
             if (!startTime || !endTime) { alert("Time ရွေးချယ်ပေးပါ။"); return; }
             const res = await fetch('/api/export-csv', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targetIp, startTime, endTime })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetIp, startTime, endTime })
             });
             if (res.ok) {
                 const blob = await res.blob(); const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = "Report_" + targetIp + ".csv";
-                document.body.appendChild(a); a.click(); a.remove();
+                const a = document.createElement('a'); a.href = url; a.download = "Report_" + targetIp + ".csv"; document.body.appendChild(a); a.click(); a.remove();
             }
         }
     </script>
